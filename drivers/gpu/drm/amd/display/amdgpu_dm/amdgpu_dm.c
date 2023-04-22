@@ -4129,8 +4129,8 @@ static int amdgpu_dm_mode_config_init(struct amdgpu_device *adev)
 		return r;
 	}
 
-#ifdef AMD_PRIVATE_COLOR
-	if (amdgpu_dm_create_color_properties(adev)) {
+#ifdef CONFIG_DRM_AMD_COLOR_STEAMDECK
+	if (amdgpu_dm_create_color_properties(adev))
 		dc_state_release(state->context);
 		kfree(state);
 		return -ENOMEM;
