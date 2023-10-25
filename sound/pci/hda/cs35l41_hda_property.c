@@ -85,7 +85,7 @@ static int asus_rog_2023_ally_fix(struct cs35l41_hda *cs35l41, struct device *ph
 	kstrtoint(rog_ally_bios_num, 10, &rog_ally_bios_int);
 	if(rog_ally_bios_int >= 330){
 		printk(KERN_INFO "DSD properties exist in the %d BIOS\n", rog_ally_bios_int);
-		return 0; //Patch not applicable. Exiting successfully
+		return -ENOENT; //Patch not necessary. Exiting...
 	}
 
 	struct cs35l41_hw_cfg *hw_cfg = &cs35l41->hw_cfg;
