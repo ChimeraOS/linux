@@ -7547,16 +7547,23 @@ enum {
 static void alc269_fixup_match_via_dmi(struct hda_codec *codec,
                                         const struct hda_fixup *fix, int action)
 {
-        int alc269_fix_id;
+	int alc269_fix_id;
+	const char *board_name = dmi_get_system_info(DMI_BOARD_NAME);
 
-        if(dmi_name_in_vendors("AYANEO"))
-			alc269_fix_id = ALC269_FIXUP_AYA_HEADSET_VOLUME;
-	else if (dmi_name_in_vendors("ayn"))
+	if (dmi_name_in_vendors("AYANEO") || dmi_name_in_vendors("AYADEVICE") || dmi_name_in_vendors("AYA DEVICE")) {
+		if (board_name && (strcmp(board_name, "AIR 1S Limited") || strcmp(board_name, "AIR 1S") || strcmp(board_name, "AB05-Mendocino") || strcmp(board_name, "AIR Plus"))) {
 			alc269_fix_id = ALC269VB_FIXUP_AYN_SPKR_PIN_FIX;
-	else
+		} else if (board_name && (strcmp(board_name, "AYANEO 2") || strcmp(board_name, "AYANEO 2S") || strcmp(board_name, "GEEK") || strcmp(board_name, "GEEK 1S"))) {
+			alc269_fix_id = ALC269_FIXUP_AYA_HEADSET_VOLUME;
+		} else {
+			return;
+		}	
+	} else if (dmi_name_in_vendors("ayn") && strcmp(board_name, "Loki MiniPro")) {
+		alc269_fix_id = ALC269VB_FIXUP_AYN_SPKR_PIN_FIX;
+	} else {
 		return;
-
-        __snd_hda_apply_fixup(codec, alc269_fix_id, action, 0);
+	}
+	__snd_hda_apply_fixup(codec, alc269_fix_id, action, 0);
 }
 
 /* A special fixup for Lenovo C940 and Yoga Duet 7;
@@ -10654,7 +10661,7 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x2782, 0x0232, "CHUWI CoreBook XPro", ALC269VB_FIXUP_CHUWI_COREBOOK_XPRO),
 	SND_PCI_QUIRK(0x2782, 0x1707, "Vaio VJFE-ADL", ALC298_FIXUP_SPK_VOLUME),
 	SND_PCI_QUIRK(0x1f66, 0x0101, "Multiple Vendors", ALC269_FIXUP_DMI_MATCH),
-	SND_PCI_QUIRK(0x1f66, 0x0103, "AIR Plus", ALC269VB_FIXUP_AYN_SPKR_PIN_FIX),
+	SND_PCI_QUIRK(0x1f66, 0x0103, "Multiple Vendors", ALC269_FIXUP_DMI_MATCH),
 	SND_PCI_QUIRK(0x8086, 0x2074, "Intel NUC 8", ALC233_FIXUP_INTEL_NUC8_DMIC),
 	SND_PCI_QUIRK(0x8086, 0x2080, "Intel NUC 8 Rugged", ALC256_FIXUP_INTEL_NUC8_RUGGED),
 	SND_PCI_QUIRK(0x8086, 0x2081, "Intel NUC 10", ALC256_FIXUP_INTEL_NUC10),
