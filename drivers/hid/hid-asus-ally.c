@@ -2316,6 +2316,28 @@ static void ally_remove(struct hid_device *hdev)
 	hid_hw_stop(hdev);
 }
 
+static int ally_resume(struct hid_device *hdev)
+{
+	int ret;
+
+	ret = ally_gamepad_init(hdev, FEATURE_REPORT_ID);
+	if (ret < 0)
+		return ret;
+
+	ret = ally_gamepad_init(hdev, FEATURE_KBD_LED_REPORT_ID1);
+	if (ret < 0)
+		return ret;
+
+	ret = ally_gamepad_init(hdev, FEATURE_KBD_LED_REPORT_ID2);
+	if (ret < 0)
+		return ret;
+
+	if (drvdata.ally_x && drvdata.ally_x->output_worker_initialized)
+			schedule_work(&drvdata.ally_x->output_worker);
+
+	return ret;
+}
+
 MODULE_DEVICE_TABLE(hid, rog_ally_devices);
 
 static struct hid_driver rog_ally_cfg = {
@@ -2324,6 +2346,7 @@ static struct hid_driver rog_ally_cfg = {
 	.probe = ally_probe,
 	.remove = ally_remove,
 	.raw_event = ally_raw_event,
+	.resume = ally_resume,
 };
 
 static int __init rog_ally_cfg_init(void)
