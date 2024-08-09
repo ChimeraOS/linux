@@ -118,6 +118,84 @@ static const struct bmi323_hw bmi323_hw[2] = {
 	},
 };
 
+struct bmi323_reg_runtime_pm {
+	unsigned int reg;
+};
+
+static const struct bmi323_reg_runtime_pm bmi323_reg_savestate[] = {
+	{
+		.reg = BMI323_INT_MAP1_REG
+	},
+	{
+		.reg = BMI323_INT_MAP2_REG
+	},
+	{
+		.reg = BMI323_IO_INT_CTR_REG
+	},
+	{
+		.reg = BMI323_IO_INT_CONF_REG
+	},
+	{
+		.reg = BMI323_ACC_CONF_REG
+	},
+	{
+		.reg = BMI323_GYRO_CONF_REG
+	},
+	{
+		.reg = BMI323_FEAT_IO0_REG
+	},
+	{
+		.reg = BMI323_FIFO_WTRMRK_REG
+	},
+	{
+		.reg = BMI323_FIFO_CONF_REG
+	}
+};
+
+static const struct bmi323_reg_runtime_pm bmi323_ext_reg_savestate[] = {
+	{
+		.reg = BMI323_GEN_SET1_REG
+	},
+	{
+		.reg = BMI323_TAP1_REG
+	},
+	{
+		.reg = BMI323_TAP2_REG
+	},
+	{
+		.reg = BMI323_TAP3_REG
+	},
+	{
+		.reg = BMI323_FEAT_IO0_S_TAP_MSK
+	},
+	{
+		.reg = BMI323_STEP_SC1_REG
+	},
+	{
+		.reg = BMI323_ANYMO1_REG
+	},
+	{
+		.reg = BMI323_NOMO1_REG
+	},
+	{
+		.reg = BMI323_ANYMO1_REG + BMI323_MO2_OFFSET
+	},
+	{
+		.reg = BMI323_NOMO1_REG + BMI323_MO2_OFFSET
+	},
+	{
+		.reg = BMI323_ANYMO1_REG + BMI323_MO3_OFFSET
+	},
+	{
+		.reg = BMI323_NOMO1_REG + BMI323_MO3_OFFSET
+	}
+};
+
+struct bmi323_regs_runtime_pm {
+	unsigned int reg_settings[ARRAY_SIZE(bmi323_reg_savestate)];
+	unsigned int ext_reg_settings[ARRAY_SIZE(bmi323_ext_reg_savestate)];
+};
+
 struct bmi323_data {
 	struct device *dev;
 	struct regmap *regmap;
@@ -130,6 +208,7 @@ struct bmi323_data {
 	u32 odrns[BMI323_SENSORS_CNT];
 	u32 odrhz[BMI323_SENSORS_CNT];
 	unsigned int feature_events;
+	struct bmi323_regs_runtime_pm runtime_pm_status;
 
 	/*
 	 * Lock to protect the members of device's private data from concurrent
@@ -1972,6 +2051,11 @@ static void bmi323_disable(void *data_ptr)
 
 	bmi323_set_mode(data, BMI323_ACCEL, ACC_GYRO_MODE_DISABLE);
 	bmi323_set_mode(data, BMI323_GYRO, ACC_GYRO_MODE_DISABLE);
+
+	/*
+	 * Place the peripheral in its lowest power consuming state.
+	 */
+	regmap_write(data->regmap, BMI323_CMD_REG, BMI323_RST_VAL);
 }
 
 static int bmi323_set_bw(struct bmi323_data *data,
@@ -2030,6 +2114,13 @@ static int bmi323_init(struct bmi323_data *data)
 		return dev_err_probe(data->dev, -EINVAL,
 				     "Sensor power error = 0x%x\n", val);
 
+	return 0;
+}
+
+static int bmi323_init_reset(struct bmi323_data *data)
+{
+	int ret;
+
 	/*
 	 * Set the Bandwidth coefficient which defines the 3 dB cutoff
 	 * frequency in relation to the ODR.
@@ -2078,9 +2169,15 @@ int bmi323_core_probe(struct device *dev)
 	data = iio_priv(indio_dev);
 	data->dev = dev;
 	data->regmap = regmap;
+	data->irq_pin = BMI323_IRQ_DISABLED;
+	data->state = BMI323_IDLE;
 	mutex_init(&data->mutex);
 
 	ret = bmi323_init(data);
+	if (ret)
+		return -EINVAL;
+
+	ret = bmi323_init_reset(data);
 	if (ret)
 		return -EINVAL;
 
@@ -2117,7 +2214,7 @@ int bmi323_core_probe(struct device *dev)
 		return dev_err_probe(data->dev, ret,
 				     "Unable to register iio device\n");
 
-	return 0;
+	return bmi323_fifo_disable(data);
 }
 EXPORT_SYMBOL_NS_GPL(bmi323_core_probe, IIO_BMI323);
 
@@ -2125,13 +2222,137 @@ EXPORT_SYMBOL_NS_GPL(bmi323_core_probe, IIO_BMI323);
 static int bmi323_core_runtime_suspend(struct device *dev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
+	struct bmi323_data *data = iio_priv(indio_dev);
+	struct bmi323_regs_runtime_pm *savestate = &data->runtime_pm_status;
 
-	return iio_device_suspend_triggering(indio_dev);
+	int ret;
+
+	guard(mutex)(&data->mutex);
+
+	ret = iio_device_suspend_triggering(indio_dev);
+	if (ret)
+		return ret;
+
+	/*
+	 * Save registers meant to be restored by resume pm callback.
+	 */
+	for (unsigned int i = 0; i < ARRAY_SIZE(bmi323_reg_savestate); i++) {
+		const unsigned int reg_addr = bmi323_reg_savestate[i].reg;
+		unsigned int *reg_val = &savestate->reg_settings[i];
+
+		ret = regmap_read(data->regmap, reg_addr, reg_val);
+		if (ret) {
+			dev_err(data->dev, "Error reading bmi323 reg 0x%x: %d\n",
+				  reg_addr, ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Save external registers meant to be restored by resume pm callback.
+	 */
+	for (unsigned int i = 0; i < ARRAY_SIZE(bmi323_ext_reg_savestate); i++) {
+		const unsigned int ext_reg_addr = bmi323_reg_savestate[i].reg;
+		unsigned int *ext_reg_val = &savestate->reg_settings[i];
+
+		ret = bmi323_read_ext_reg(data, ext_reg_addr, ext_reg_val);
+		if (ret) {
+			dev_err(data->dev, "Error reading bmi323 external reg 0x%x: %d\n",
+				  ext_reg_addr, ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Perform soft reset to place the device in its lowest power state.
+	 */
+	ret = regmap_write(data->regmap, BMI323_CMD_REG, BMI323_RST_VAL);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 static int bmi323_core_runtime_resume(struct device *dev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
+	struct bmi323_data *data = iio_priv(indio_dev);
+	struct bmi323_regs_runtime_pm *savestate = &data->runtime_pm_status;
+
+	int ret;
+
+	guard(mutex)(&data->mutex);
+
+	/*
+	 * Perform the device power-on and initial setup once again
+	 * after being reset in the lower power state by runtime-pm.
+	 */
+	ret = bmi323_init(data);
+	if (!ret)
+		return ret;
+
+	/* Register must be cleared before changing an active config */
+	ret = regmap_write(data->regmap, BMI323_FEAT_IO0_REG, 0);
+	if (ret) {
+		dev_err(data->dev, "Error stopping feature engine\n");
+		return ret;
+	}
+
+	/*
+	 * Restore external registers saved by suspend pm callback.
+	 */
+	for (unsigned int i = 0; i < ARRAY_SIZE(bmi323_ext_reg_savestate); i++) {
+		const unsigned int ext_reg_addr = bmi323_reg_savestate[i].reg;
+		const unsigned int ext_reg_val = savestate->reg_settings[i];
+
+		ret = bmi323_write_ext_reg(data, ext_reg_addr, ext_reg_val);
+		if (ret) {
+			dev_err(data->dev, "Error writing bmi323 external reg 0x%x: %d\n",
+				  ext_reg_addr, ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Restore registers saved by suspend pm callback.
+	 */
+	for (unsigned int i = 0; i < ARRAY_SIZE(bmi323_reg_savestate); i++) {
+		const unsigned int reg_addr = bmi323_reg_savestate[i].reg;
+		const unsigned int reg_val = savestate->reg_settings[i];
+
+		ret = regmap_write(data->regmap, reg_addr, reg_val);
+		if (ret) {
+			dev_err(data->dev, "Error writing bmi323 reg 0x%x: %d\n",
+				  reg_addr, ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Clear old FIFO samples that might be generated before suspend
+	 * or generated from a peripheral state not equal to the saved one.
+	 */
+	if (data->state == BMI323_BUFFER_FIFO) {
+		ret = regmap_write(data->regmap, BMI323_FIFO_CTRL_REG,
+			   BMI323_FIFO_FLUSH_MSK);
+		if (ret) {
+			dev_err(data->dev, "Error flushing FIFO buffer: %d\n", ret);
+			return ret;
+		}
+	}
+
+	unsigned int val;
+
+	ret = regmap_read(data->regmap, BMI323_ERR_REG, &val);
+	if (ret) {
+		dev_err(data->dev, "Error reading bmi323 error register: %d\n", ret);
+		return ret;
+	}
+
+	if (val) {
+		dev_err(data->dev, "Sensor power error in PM = 0x%x\n", val);
+		return -EINVAL;
+	}
 
 	return iio_device_resume_triggering(indio_dev);
 }
