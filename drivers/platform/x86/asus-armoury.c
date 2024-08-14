@@ -674,15 +674,21 @@ static ssize_t cores_current_value_store(struct kobject *kobj,
 	if (err)
 		return err;
 
-	if (core_type == CPU_CORE_PERF)
-		cores |= (currentv & 0xff00);
-	else
-		cores |= currentv & 0xff;
+	if (core_type == CPU_CORE_PERF) {
+		cores &= ~ASUS_PERF_CORE_MASK;
+		cores |= FIELD_PREP(ASUS_PERF_CORE_MASK, currentv >> 8);
+	} else {
+		cores &= ~ASUS_POWER_CORE_MASK;
+		cores |= FIELD_PREP(ASUS_POWER_CORE_MASK, currentv);
+	}
 
 	if (cores == currentv)
 		return 0;
 
+	mutex_lock(&asus_armoury.mutex);
 	err = asus_wmi_set_devstate(ASUS_WMI_DEVID_CORES, cores, &result);
+	mutex_unlock(&asus_armoury.mutex);
+
 	if (err) {
 		pr_warn("Failed to set CPU core count: %d\n", err);
 		return err;
