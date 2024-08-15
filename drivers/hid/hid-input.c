@@ -2363,6 +2363,7 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 
 		if (!hidinput_has_been_populated(hidinput)) {
 			/* no need to register an input device not populated */
+			hid_info(hid, "No input device configured\n");
 			hidinput_cleanup_hidinput(hid, hidinput);
 			continue;
 		}

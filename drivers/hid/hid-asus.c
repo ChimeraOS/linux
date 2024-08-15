@@ -743,6 +743,8 @@ static int asus_input_configured(struct hid_device *hdev, struct hid_input *hi)
 	struct input_dev *input = hi->input;
 	struct asus_drvdata *drvdata = hid_get_drvdata(hdev);
 
+	hid_info(hdev, "%s: hi is %p\n", __func__, hi);
+
 	/* T100CHI uses MULTI_INPUT, bind the touchpad to the mouse hid_input */
 	if (drvdata->quirks & QUIRK_T100CHI &&
 	    hi->report->id != T100CHI_MOUSE_REPORT_ID)
@@ -1098,8 +1100,8 @@ static int asus_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	}
 
 	if (!drvdata->input) {
-		hid_err(hdev, "Asus input not registered\n");
-		ret = -ENOMEM;
+		hid_err(hdev, "Asus input not registered, deferring probing\n");
+		ret = -EPROBE_DEFER;
 		goto err_stop_hw;
 	}
 
