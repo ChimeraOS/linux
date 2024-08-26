@@ -1109,6 +1109,7 @@ struct acpi_s2idle_dev_ops {
 	void (*prepare)(void);
 	void (*check)(void);
 	void (*restore)(void);
+	bool wake_on_ac;
 };
 int acpi_register_lps0_dev(struct acpi_s2idle_dev_ops *arg);
 void acpi_unregister_lps0_dev(struct acpi_s2idle_dev_ops *arg);
