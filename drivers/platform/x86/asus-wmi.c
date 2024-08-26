@@ -11,7 +11,10 @@
  * Copyright (C) 2005 Dmitry Torokhov <dtor@mail.ru>
  */
 
+#include "linux/usb/ch9.h"
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
+#include "linux/printk.h"
 
 #include <linux/acpi.h>
 #include <linux/backlight.h>
@@ -128,8 +131,6 @@ module_param(fnlock_default, bool, 0444);
 
 /* Controls the power state of the USB0 hub on ROG Ally which input is on */
 #define ASUS_USB0_PWR_EC0_CSEE "\\_SB.PCI0.SBRG.EC0.CSEE"
-/* 300ms so far seems to produce a reliable result on AC and battery */
-#define ASUS_USB0_PWR_EC0_CSEE_WAIT 1500
 
 static const char * const ashs_ids[] = { "ATK4001", "ATK4002", NULL };
 
@@ -243,9 +244,6 @@ struct asus_wmi {
 	u32 tablet_switch_dev_id;
 	bool tablet_switch_inverted;
 
-	/* The ROG Ally device requires the MCU USB device be disconnected before suspend */
-	bool ally_mcu_usb_switch;
-
 	enum fan_type fan_type;
 	enum fan_type gpu_fan_type;
 	enum fan_type mid_fan_type;
@@ -305,6 +303,9 @@ struct asus_wmi {
 
 	struct asus_wmi_driver *driver;
 };
+
+static bool ally_mcu_usb_switch;
+static int ally_suspended_power_state;
 
 /* WMI ************************************************************************/
 
@@ -4751,27 +4752,20 @@ static int asus_wmi_add(struct platform_device *pdev)
 	asus->egpu_enable_available = asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_EGPU);
 	asus->dgpu_disable_available = asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_DGPU);
 	asus->kbd_rgb_state_available = asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_TUF_RGB_STATE);
-	asus->ally_mcu_usb_switch = acpi_has_method(NULL, ASUS_USB0_PWR_EC0_CSEE)
+	ally_mcu_usb_switch = acpi_has_method(NULL, ASUS_USB0_PWR_EC0_CSEE)
 						&& dmi_check_system(asus_ally_mcu_quirk);
 
-	if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_MINI_LED_MODE)) {
-		asus->mini_led_mode_available = true;
+	if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_MINI_LED_MODE))
 		asus->mini_led_dev_id = ASUS_WMI_DEVID_MINI_LED_MODE;
-	} else if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_MINI_LED_MODE2)) {
-		asus->mini_led_mode_available = true;
+	else if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_MINI_LED_MODE2))
 		asus->mini_led_dev_id = ASUS_WMI_DEVID_MINI_LED_MODE2;
-	}
 
-	if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_GPU_MUX)) {
-		asus->gpu_mux_mode_available = true;
+	if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_GPU_MUX))
 		asus->gpu_mux_dev = ASUS_WMI_DEVID_GPU_MUX;
-	} else if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_GPU_MUX_VIVO)) {
-		asus->gpu_mux_mode_available = true;
+	else if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_GPU_MUX_VIVO))
 		asus->gpu_mux_dev = ASUS_WMI_DEVID_GPU_MUX_VIVO;
-	}
 
 	if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_TUF_RGB_MODE)) {
-		asus->kbd_rgb_mode_available = true;
 		asus->kbd_rgb_dev = ASUS_WMI_DEVID_TUF_RGB_MODE;
 	} else if (asus_wmi_dev_is_present(asus, ASUS_WMI_DEVID_TUF_RGB_MODE2)) {
 		asus->kbd_rgb_mode_available = true;
@@ -4954,34 +4948,6 @@ static int asus_hotk_resume(struct device *device)
 	return 0;
 }
 
-static int asus_hotk_resume_early(struct device *device)
-{
-	struct asus_wmi *asus = dev_get_drvdata(device);
-
-	if (asus->ally_mcu_usb_switch) {
-		/* sleep required to prevent USB0 being yanked then reappearing rapidly */
-		if (ACPI_FAILURE(acpi_execute_simple_method(NULL, ASUS_USB0_PWR_EC0_CSEE, 0xB8)))
-			dev_err(device, "ROG Ally MCU failed to connect USB dev\n");
-		else
-			msleep(ASUS_USB0_PWR_EC0_CSEE_WAIT);
-	}
-	return 0;
-}
-
-static int asus_hotk_prepare(struct device *device)
-{
-	struct asus_wmi *asus = dev_get_drvdata(device);
-
-	if (asus->ally_mcu_usb_switch) {
-		/* sleep required to ensure USB0 is disabled before sleep continues */
-		if (ACPI_FAILURE(acpi_execute_simple_method(NULL, ASUS_USB0_PWR_EC0_CSEE, 0xB7)))
-			dev_err(device, "ROG Ally MCU failed to disconnect USB dev\n");
-		else
-			msleep(ASUS_USB0_PWR_EC0_CSEE_WAIT);
-	}
-	return 0;
-}
-
 static int asus_hotk_restore(struct device *device)
 {
 	struct asus_wmi *asus = dev_get_drvdata(device);
@@ -5022,11 +4988,76 @@ static int asus_hotk_restore(struct device *device)
 	return 0;
 }
 
+static void asus_ally_s2idle_restore(void)
+{
+	int powersave = 0;
+	int power_state;
+
+	if (ally_mcu_usb_switch) {
+		/* Call here so it is as early as possible */
+		platform_suspend_screen_on();
+
+		power_state = power_supply_is_system_supplied();
+		asus_wmi_get_devstate_dsts(ASUS_WMI_DEVID_MCU_POWERSAVE, &powersave);
+		/* These are the only states we need to do this for */
+		if (powersave && (!power_state || ally_suspended_power_state != power_state))
+			if (ACPI_FAILURE(acpi_execute_simple_method(NULL, ASUS_USB0_PWR_EC0_CSEE, 0xB8)))
+				pr_err("ROG Ally MCU failed to connect USB dev\n");
+	}
+}
+
+static void asus_ally_s2idle_check(void)
+{
+	int powersave = 0;
+	int power_state;
+
+	if (ally_mcu_usb_switch) {
+		power_state = power_supply_is_system_supplied();
+		asus_wmi_get_devstate_dsts(ASUS_WMI_DEVID_MCU_POWERSAVE, &powersave);
+
+		/* Wake the device fully if AC plugged in. Prevents many issues */
+		if (power_state > 0 && ally_suspended_power_state != power_state) {
+			pm_system_wakeup();
+			return;
+		}
+
+		/*
+		 * Required to ensure device is in good state on proper resume. The device
+		 * does a partial wake on AC unplug and this can leave an Ally X in bad state.
+		 */
+		if (ally_suspended_power_state != power_state) {
+			acpi_execute_simple_method(NULL, ASUS_USB0_PWR_EC0_CSEE, 0xB7);
+			msleep(500);
+		}
+	}
+}
+
+static int asus_hotk_prepare(struct device *device)
+{
+	int powersave = 0;
+	int power_state;
+
+	if (ally_mcu_usb_switch) {
+		platform_suspend_screen_off();
+
+		ally_suspended_power_state = power_state = power_supply_is_system_supplied();
+		asus_wmi_get_devstate_dsts(ASUS_WMI_DEVID_MCU_POWERSAVE, &powersave);
+		/* Certain operations in firmware appear to be slow when powersave is on */
+		if (powersave)
+			msleep(2000);
+	}
+	return 0;
+}
+
+static struct acpi_s2idle_dev_ops asus_ally_s2idle_dev_ops = {
+	.restore = asus_ally_s2idle_restore,
+	.check = asus_ally_s2idle_check,
+};
+
 static const struct dev_pm_ops asus_pm_ops = {
 	.thaw = asus_hotk_thaw,
 	.restore = asus_hotk_restore,
 	.resume = asus_hotk_resume,
-	.resume_early = asus_hotk_resume_early,
 	.prepare = asus_hotk_prepare,
 };
 
@@ -5036,7 +5067,7 @@ static int asus_wmi_probe(struct platform_device *pdev)
 {
 	struct platform_driver *pdrv = to_platform_driver(pdev->dev.driver);
 	struct asus_wmi_driver *wdrv = to_asus_wmi_driver(pdrv);
-	int ret;
+	int ret, err;
 
 	if (!wmi_has_guid(ASUS_WMI_MGMT_GUID)) {
 		pr_warn("ASUS Management GUID not found\n");
@@ -5053,6 +5084,10 @@ static int asus_wmi_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
+
+	err = acpi_register_lps0_dev(&asus_ally_s2idle_dev_ops);
+	if (err)
+		pr_warn("failed to register LPS0 sleep handler in asus-wmi\n");
 
 	return asus_wmi_add(pdev);
 }
@@ -5086,6 +5121,7 @@ EXPORT_SYMBOL_GPL(asus_wmi_register_driver);
 
 void asus_wmi_unregister_driver(struct asus_wmi_driver *driver)
 {
+	acpi_unregister_lps0_dev(&asus_ally_s2idle_dev_ops);
 	platform_device_unregister(driver->platform_device);
 	platform_driver_unregister(&driver->platform_driver);
 	used = false;
