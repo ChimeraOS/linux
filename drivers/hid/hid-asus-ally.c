@@ -2020,7 +2020,7 @@ static int ally_gamepad_register_brightness(struct hid_device *hdev,
 	struct led_classdev *led_cdev;
 
 	led_cdev = &led_rgb->led_bright_dev;
-	led_cdev->name = "ally:kbd_backlight"; /* Let a desktop control it also */
+	led_cdev->name = "asus::kbd_backlight"; /* Let a desktop control it also */
 	led_cdev->max_brightness = 3;
 	led_cdev->brightness_set = ally_backlight_set;
 	led_cdev->brightness_get = ally_backlight_get;
@@ -2059,7 +2059,7 @@ static int ally_gamepad_register_rgb_leds(struct hid_device *hdev,
 	led_rgb->led_rgb_dev.num_colors = 3 * 4;
 
 	led_cdev = &led_rgb->led_rgb_dev.led_cdev;
-	led_cdev->name = "ally:rgb:gamepad";
+	led_cdev->name = "ally:rgb:joystick_rings";
 	led_cdev->brightness = 128;
 	led_cdev->max_brightness = 255;
 	led_cdev->brightness_set = ally_set_rgb_brightness;

@@ -18,6 +18,7 @@
 #include <linux/acpi.h>
 #include <linux/device.h>
 #include <linux/dmi.h>
+#include <linux/power_supply.h>
 #include <linux/suspend.h>
 
 #include "../sleep.h"
@@ -53,6 +54,7 @@ static const struct acpi_device_id lps0_device_ids[] = {
 #define ACPI_LPS0_SCREEN_OFF_AMD    4
 #define ACPI_LPS0_SCREEN_ON_AMD     5
 
+static struct acpi_device *lps0_device;
 static acpi_handle lps0_device_handle;
 static guid_t lps0_dsm_guid;
 static int lps0_dsm_func_mask;
@@ -60,6 +62,7 @@ static int lps0_dsm_func_mask;
 static guid_t lps0_dsm_guid_microsoft;
 static int lps0_dsm_func_mask_microsoft;
 static int lps0_dsm_state;
+static int lps0_ac_state;
 
 /* Device constraint entry structure */
 struct lpi_device_info {
@@ -507,6 +510,8 @@ static int lps0_device_attach(struct acpi_device *adev,
 		return 0; //function evaluation failed
 
 	lps0_device_handle = adev->handle;
+	lps0_device = adev;
+	device_set_wakeup_capable(&adev->dev, true);
 
 	if (acpi_s2idle_vendor_amd())
 		lpi_device_get_constraints_amd();
@@ -605,6 +610,9 @@ int acpi_s2idle_prepare_late(void)
 	if (pm_debug_messages_on)
 		lpi_check_constraints();
 
+	/* capture AC adapter state */
+	lps0_ac_state = power_supply_is_system_supplied();
+
 	/* LPS0 entry */
 	if (lps0_dsm_func_mask > 0 && acpi_s2idle_vendor_amd())
 		acpi_sleep_run_lps0_dsm(ACPI_LPS0_ENTRY_AMD,
@@ -640,6 +648,15 @@ void acpi_s2idle_check(void)
 	list_for_each_entry(handler, &lps0_s2idle_devops_head, list_node) {
 		if (handler->check)
 			handler->check();
+	}
+
+	/* if configured, wake system from AC adapter changes */
+	if (device_may_wakeup(&lps0_device->dev) &&
+	    power_supply_is_system_supplied() != lps0_ac_state) {
+		if (pm_debug_messages_on)
+			acpi_handle_info(lps0_device_handle,
+					"AC adapter state changed\n");
+		acpi_pm_wakeup_event(&lps0_device->dev);
 	}
 }
 
@@ -704,6 +721,8 @@ int acpi_register_lps0_dev(struct acpi_s2idle_dev_ops *arg)
 
 	sleep_flags = lock_system_sleep();
 	list_add(&arg->list_node, &lps0_s2idle_devops_head);
+	if (arg->wake_on_ac)
+		device_set_wakeup_enable(&lps0_device->dev, true);
 	unlock_system_sleep(sleep_flags);
 
 	return 0;

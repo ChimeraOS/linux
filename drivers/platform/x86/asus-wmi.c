@@ -5084,7 +5084,7 @@ static void asus_ally_s2idle_check(void)
 
 		/* Wake the device fully if AC plugged in. Prevents many issues */
 		if (power_state > 0 && ally_suspended_power_state != power_state) {
-			pm_system_wakeup();
+			// pm_system_wakeup();
 			return;
 		}
 
@@ -5119,6 +5119,7 @@ static int asus_hotk_prepare(struct device *device)
 static struct acpi_s2idle_dev_ops asus_ally_s2idle_dev_ops = {
 	.restore = asus_ally_s2idle_restore,
 	.check = asus_ally_s2idle_check,
+	.wake_on_ac = true,
 };
 
 static const struct dev_pm_ops asus_pm_ops = {
