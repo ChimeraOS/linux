@@ -4990,10 +4990,10 @@ static int asus_hotk_restore(struct device *device)
 
 static void asus_ally_s2idle_restore(void)
 {
-	int powersave = 0;
 	int power_state;
 
 	if (ally_mcu_usb_switch) {
+		int powersave = 0;
 		/* Call here so it is as early as possible */
 		platform_suspend_screen_on();
 
@@ -5006,52 +5006,23 @@ static void asus_ally_s2idle_restore(void)
 	}
 }
 
-static void asus_ally_s2idle_check(void)
-{
-	int powersave = 0;
-	int power_state;
-
-	if (ally_mcu_usb_switch) {
-		power_state = power_supply_is_system_supplied();
-		asus_wmi_get_devstate_dsts(ASUS_WMI_DEVID_MCU_POWERSAVE, &powersave);
-
-		/* Wake the device fully if AC plugged in. Prevents many issues */
-		if (power_state > 0 && ally_suspended_power_state != power_state) {
-			pm_system_wakeup();
-			return;
-		}
-
-		/*
-		 * Required to ensure device is in good state on proper resume. The device
-		 * does a partial wake on AC unplug and this can leave an Ally X in bad state.
-		 */
-		if (ally_suspended_power_state != power_state) {
-			acpi_execute_simple_method(NULL, ASUS_USB0_PWR_EC0_CSEE, 0xB7);
-			msleep(500);
-		}
-	}
-}
-
 static int asus_hotk_prepare(struct device *device)
 {
-	int powersave = 0;
-	int power_state;
-
 	if (ally_mcu_usb_switch) {
+		int powersave = 0;
 		platform_suspend_screen_off();
 
-		ally_suspended_power_state = power_state = power_supply_is_system_supplied();
+		/* Time here greatly impacts the wake behaviour */
 		asus_wmi_get_devstate_dsts(ASUS_WMI_DEVID_MCU_POWERSAVE, &powersave);
-		/* Certain operations in firmware appear to be slow when powersave is on */
 		if (powersave)
-			msleep(2000);
+			msleep(3000);
 	}
 	return 0;
 }
 
 static struct acpi_s2idle_dev_ops asus_ally_s2idle_dev_ops = {
 	.restore = asus_ally_s2idle_restore,
-	.check = asus_ally_s2idle_check,
+	.wake_on_ac = true,
 };
 
 static const struct dev_pm_ops asus_pm_ops = {
