@@ -11,7 +11,10 @@
  * Copyright (C) 2005 Dmitry Torokhov <dtor@mail.ru>
  */
 
+#include "linux/usb/ch9.h"
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
+#include "linux/printk.h"
 
 #include <linux/acpi.h>
 #include <linux/backlight.h>
