@@ -14,6 +14,7 @@
 #ifndef _ASUS_WMI_H_
 #define _ASUS_WMI_H_
 
+#include "linux/mod_devicetable.h"
 #include <linux/platform_device.h>
 #include <linux/i8042.h>
 
