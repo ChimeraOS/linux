@@ -2198,7 +2198,7 @@ static int bmi323_core_runtime_suspend(struct device *dev)
 	}
 
 	for (unsigned int i = 0; i < ARRAY_SIZE(bmi323_ext_reg_savestate); i++) {
-		ret = bmi323_read_ext_reg(data, bmi323_reg_savestate[i],
+		ret = bmi323_read_ext_reg(data, bmi323_reg_ext_savestate[i],
 			   &savestate->reg_settings[i]);
 		if (ret) {
 			dev_err(data->dev, "Error reading bmi323 external reg 0x%x: %d\n",
