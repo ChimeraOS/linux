@@ -80,4 +80,11 @@ config DRM_DISPLAY_HDMI_STATE_HELPER
 	help
 	  DRM KMS state helpers for HDMI.
 
+config DRM_AMD_COLOR_STEAMDECK
+	bool "Enable color calibration features for Steam Deck"
+	depends on DRM_AMD_DC
+	help
+	  Choose this option if you want to use AMDGPU features for broader
+	  color management support on Steam Deck.
+
 endif # DRM_DISPLAY_HELPER
