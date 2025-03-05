@@ -1199,6 +1199,14 @@ config OXP_EC
 		reasons, this driver also provides hwmon functionality to Ayaneo
 		devices and the OrangePi Neo.
 
+config ZOTAC_ZONE_PLATFORM
+	tristate "Zotac Zone platform driver"
+	help
+	  Support for fans and PPT on Zotac Zone devices.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called zotac-zone.
+
 endif # X86_PLATFORM_DEVICES
 
 config P2SB
