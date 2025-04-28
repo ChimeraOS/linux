@@ -69,6 +69,7 @@ MODULE_DEVICE_TABLE(of, bmi160_of_match);
 static struct i2c_driver bmi160_i2c_driver = {
 	.driver = {
 		.name			= "bmi160_i2c",
+		.pm			= pm_ptr(&bmi160_core_pm_ops),
 		.acpi_match_table	= bmi160_acpi_match,
 		.of_match_table		= bmi160_of_match,
 	},
