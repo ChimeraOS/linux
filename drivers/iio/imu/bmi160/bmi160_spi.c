@@ -61,6 +61,7 @@ static struct spi_driver bmi160_spi_driver = {
 		.acpi_match_table	= bmi160_acpi_match,
 		.of_match_table		= bmi160_of_match,
 		.name			= "bmi160_spi",
+		.pm			= pm_ptr(&bmi160_core_pm_ops),
 	},
 };
 module_spi_driver(bmi160_spi_driver);
