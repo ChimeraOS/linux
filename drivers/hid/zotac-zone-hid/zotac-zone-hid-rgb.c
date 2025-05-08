@@ -198,9 +198,9 @@ static void zotac_rgb_do_work(struct work_struct *work)
 
 	for (j = 0; j < ZOTAC_RGB_LEDS_PER_ZONE; j++) {
 		led_index = zone_idx * ZOTAC_RGB_LEDS_PER_ZONE + j;
-		zone_data[1 + (j * 3)] = led->red[led_index];
-		zone_data[1 + (j * 3) + 1] = led->green[led_index];
-		zone_data[1 + (j * 3) + 2] = led->blue[led_index];
+		zone_data[1 + (j * 3)] = led->green[led_index];
+		zone_data[1 + (j * 3) + 1] = led->blue[led_index];
+		zone_data[1 + (j * 3) + 2] = led->red[led_index];
 	}
 	spin_unlock_irqrestore(&led->lock, flags);
 
